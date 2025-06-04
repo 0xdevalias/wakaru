@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.2.0](https://github.com/0xdevalias/wakaru/compare/unpacker-v0.1.2...unpacker-v0.2.0) (2025-06-04)
+
+
+### ⚠ BREAKING CHANGES
+
+* bump Node.js to >= 18
+* deprecate `@wakaru/unminify` and `@wakaru/unpacker` CLI in favor of `@wakaru/cli`
+
+### Features
+
+* add `un-iife` ([fba8056](https://github.com/0xdevalias/wakaru/commit/fba805626f0f16b15c83cc333b77a46fbd3ee67c))
+* Allow Arrow functions in module definitions ([6a60b92](https://github.com/0xdevalias/wakaru/commit/6a60b9222ebcc7099f4ba162ecc868343bdb18ff))
+* Allow re-exports from modules in Webpack5 ([89065a4](https://github.com/0xdevalias/wakaru/commit/89065a4e689b08d3e098c2e2d9eb647f896f78c8))
+* babel runtime scan ([a2587de](https://github.com/0xdevalias/wakaru/commit/a2587ded911cc61ca31c893851e7c4417015658b))
+* **babel-helpers:** support `extends` and improve `objectDestructuringEmpty` ([c1957b6](https://github.com/0xdevalias/wakaru/commit/c1957b63819f416237246bf6d53f19072ce93536))
+* **babel-runtime:** add matcher for `taggedTemplateLiteral` and `taggedTemplateLiteralLoose` ([c0e2bee](https://github.com/0xdevalias/wakaru/commit/c0e2beeb743f9188050b3a9ab18bf28fd70ddb4b))
+* **babel-runtime:** support `interopRequireDefault` ([55b64fa](https://github.com/0xdevalias/wakaru/commit/55b64fa2dcb57183476acb64b50cbcce40894a55))
+* **babel-runtime:** support `interopRequireWildcard` ([bc0006c](https://github.com/0xdevalias/wakaru/commit/bc0006ccf378859ed5b6fbc174947c3eb4ebffa2))
+* build package ([2c281bc](https://github.com/0xdevalias/wakaru/commit/2c281bc29af5e609bbd352b1bde4b14d5b3122e5))
+* bump Node.js to &gt;= 18 ([c36d0a0](https://github.com/0xdevalias/wakaru/commit/c36d0a0176db56e98841051db264ab4c4f13739d))
+* deprecate `@wakaru/unminify` and `@wakaru/unpacker` CLI in favor of `@wakaru/cli` ([be2012e](https://github.com/0xdevalias/wakaru/commit/be2012e112145e0025cef7aa74a9686c0f952a6d))
+* **iife:** detect various iife ([0356085](https://github.com/0xdevalias/wakaru/commit/035608500def05031f24dc2c46e224eda986cac4))
+* playground ([74075f4](https://github.com/0xdevalias/wakaru/commit/74075f43e8c47aabe23fe6bd680fc57a31ede219))
+* **playground:** let unpack run in worker ([05bf698](https://github.com/0xdevalias/wakaru/commit/05bf698b5b1f5f4464422d07e78fcf8fe5956b29))
+* **playground:** support share link ([b1de7b2](https://github.com/0xdevalias/wakaru/commit/b1de7b2cf3aab95ec619489a587f4bbd76c6e514))
+* pre scan module meta ([70fde64](https://github.com/0xdevalias/wakaru/commit/70fde646079d483dc4b91fff2d206c3ef786adc8))
+* support minified enum ([f7b882e](https://github.com/0xdevalias/wakaru/commit/f7b882e0f6e1a5b8223a85d5f159ba5c419a3fcf))
+* **un-indirect-call:** implement indrect call replacement ([2594302](https://github.com/0xdevalias/wakaru/commit/25943028817dfcf99c424afd867fbd4ffc246d84))
+* **unpacker:** implement cli ([e3d2777](https://github.com/0xdevalias/wakaru/commit/e3d277770d20c11d5af09073d202fd6f4416f4c9))
+* **unpacker:** implement webpack jsonp parsing ([309479e](https://github.com/0xdevalias/wakaru/commit/309479ec082bd06daa4587e3648e3b3b82dfa3c6))
+* webpack4 entry id detection ([7acb7f7](https://github.com/0xdevalias/wakaru/commit/7acb7f7df7bc2fa581cda852104b0b8c92fd43f9))
+
+
+### Bug Fixes
+
+* avoid removing output folder ([02f8d46](https://github.com/0xdevalias/wakaru/commit/02f8d4631dcbe62f2a91b6b0b88811dd06d31039))
+* **babel-runtime:** support `createForOfIteratorHelper` ([f2c08a3](https://github.com/0xdevalias/wakaru/commit/f2c08a3e1730cf27aabb919d33c69229eb150db6))
+* **cli:** paths out of cwd is not allowed ([7cee0c8](https://github.com/0xdevalias/wakaru/commit/7cee0c8d461a12fb710a44722be043065cf072ed))
+* fix reference check and identifier renaming ([244cb3e](https://github.com/0xdevalias/wakaru/commit/244cb3ebfc89634b8b91c1efda7ecd4a687c6f94))
+* fix type from `ast-types` ([50527d7](https://github.com/0xdevalias/wakaru/commit/50527d708d1f17de1bae4d67fb650bbf84f86dd9))
+* handle parsing error in unpacker ([1a86293](https://github.com/0xdevalias/wakaru/commit/1a8629343e5fc8284c82af591a64ce8164dd222c))
+* make jsonp support window["jsonp"] form ([2017731](https://github.com/0xdevalias/wakaru/commit/20177314a155bcb04efa794005dba840f7cb2418))
+* move internal packages to devDeps ([da665a0](https://github.com/0xdevalias/wakaru/commit/da665a09d4e2915fcc8d80e6f687c723160bf097))
+* **playground:** improve the UI ([2b2615c](https://github.com/0xdevalias/wakaru/commit/2b2615c7ebaf4aee98802adf01b27f9235a69851))
+* **unpacker:** fix require.d replacment and add tests for it ([3fd6772](https://github.com/0xdevalias/wakaru/commit/3fd677265202f3725776a094faeac994f7ae6463))
+* **unpacker:** fix require.d to export should not introduce duplicate identifier ([50231b6](https://github.com/0xdevalias/wakaru/commit/50231b626e61c1e078a52cd2fc8ed813bcbe6cd9))
+
 ## [0.1.2](https://github.com/pionxzh/wakaru/compare/unpacker-v0.1.1...unpacker-v0.1.2) (2024-05-26)
 
 
