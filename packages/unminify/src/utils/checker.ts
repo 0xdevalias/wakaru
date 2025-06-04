@@ -46,19 +46,19 @@ export function isLogicalNot(j: JSCodeshift, node: ASTNode): node is UnaryExpres
 
 export function isNotNullBinary(j: JSCodeshift, node: ASTNode): node is BinaryExpression {
     return j.BinaryExpression.check(node)
-    && node.operator === '!=='
+    && (node.operator === '!==' || node.operator === '!=')
     && (isNull(j, node.left) || isNull(j, node.right))
 }
 
 export function isNullBinary(j: JSCodeshift, node: ASTNode): node is BinaryExpression {
     return j.BinaryExpression.check(node)
-    && node.operator === '==='
+    && (node.operator === '===' || node.operator === '==')
     && (isNull(j, node.left) || isNull(j, node.right))
 }
 
 export function isUndefinedBinary(j: JSCodeshift, node: ASTNode): node is BinaryExpression {
     return j.BinaryExpression.check(node)
-    && node.operator === '==='
+    && (node.operator === '===' || node.operator === '==')
     && (isUndefined(j, node.left) || isUndefined(j, node.right))
 }
 

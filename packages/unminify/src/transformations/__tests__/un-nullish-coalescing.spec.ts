@@ -178,6 +178,27 @@ function foo3(foo, bar = foo ?? "bar") {}
 `,
 )
 
+inlineTest('complex nested nullish and optional chaining',
+  `
+var a =
+      null !==
+        (t =
+          null == r ||
+          null === (n = r.app_info) ||
+          void 0 === n ||
+          null === (o = n.base_info) ||
+          void 0 === o
+            ? void 0
+            : o.app_name) && void 0 !== t
+        ? t
+        : "game";
+`,
+  `
+var a =
+      r?.app_info?.base_info?.app_name ?? "game";
+`,
+)
+
 inlineTest('TypeScript',
   `
 var _a, _b;
