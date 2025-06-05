@@ -130,10 +130,11 @@ function constructOptionalChaining(
         }
 
         if (isNullBinary(j, condition)) {
-            const { left, right } = condition
+            const { left, right, operator } = condition
             const nonNullExpr = j.NullLiteral.check(left) ? right : left
 
-            const cond = constructOptionalChaining(j, path, falseBranch, 1)
+            const nextFlag = operator === '==' ? 0 : 1
+            const cond = constructOptionalChaining(j, path, falseBranch, nextFlag)
             if (!cond) return null
 
             if (j.AssignmentExpression.check(nonNullExpr) && j.Identifier.check(nonNullExpr.left)) {
@@ -164,9 +165,17 @@ function constructOptionalChaining(
         if (falseBranch) {
             const cond = constructOptionalChaining(j, path, falseBranch, 0)
             if (!cond) return null
+            if (isNullBinary(j, condition)) {
+                const { left, right } = condition
+                const id = j.NullLiteral.check(left) ? right : left
+                if (j.Identifier.check(id) || j.MemberExpression.check(id)) {
+                    const result = applyOptionalChaining(j, cond, id as any, undefined)
+                    transformed = true
+                    return result
+                }
+            }
 
-            const result = applyOptionalChaining(j, cond, condition as Identifier, undefined)
-            // combine the condition with the original condition
+            const result = applyOptionalChaining(j, cond, condition as any, undefined)
             return j.logicalExpression('||', condition, result)
         }
     }
