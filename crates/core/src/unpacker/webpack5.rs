@@ -5,8 +5,8 @@ use swc_core::atoms::Atom;
 use swc_core::common::{sync::Lrc, Mark, SourceMap, SyntaxContext, DUMMY_SP, GLOBALS};
 use swc_core::ecma::ast::{
     ArrayLit, AssignExpr, AssignOp, AssignTarget, BinExpr, BinaryOp, BlockStmtOrExpr, CallExpr,
-    Callee, Expr, ExprStmt, FnExpr, Function, Ident, IdentName, Lit, MemberExpr, MemberProp,
-    Module, ModuleItem, ObjectLit, Pat, Prop, PropName, PropOrSpread, SeqExpr, SimpleAssignTarget,
+    Callee, Expr, ExprStmt, FnExpr, Ident, IdentName, Lit, MemberExpr, MemberProp, Module,
+    ModuleItem, ObjectLit, Param, Pat, Prop, PropName, PropOrSpread, SeqExpr, SimpleAssignTarget,
     Stmt, Str, UnaryExpr, UnaryOp, VarDecl, VarDeclarator,
 };
 use swc_core::ecma::codegen::{text_writer::JsWriter, Config, Emitter};
@@ -433,8 +433,8 @@ fn extract_chunk_push_parts(expr: &Expr) -> Option<(&ArrayLit, &ObjectLit)> {
     if modules_object.props.is_empty() {
         return None;
     }
-    for prop in &modules_object.props {
-        extract_module_from_prop(prop)?;
+    if !is_valid_modules_object(modules_object) {
+        return None;
     }
 
     Some((chunk_ids, modules_object))
@@ -476,8 +476,8 @@ fn extract_commonjs_chunk_modules_from_assign(assign: &AssignExpr) -> Option<&Ob
     if modules_object.props.is_empty() {
         return None;
     }
-    for prop in &modules_object.props {
-        extract_module_from_prop(prop)?;
+    if !is_valid_modules_object(modules_object) {
+        return None;
     }
     Some(modules_object)
 }
@@ -569,32 +569,19 @@ fn extract_modules_from_object(
     );
     let _enter = span.enter();
 
-    let mut module_entries = Vec::new();
+    let module_entries = collect_module_descriptors(modules_object)?;
 
-    for prop in &modules_object.props {
-        let (module_id, factory, body_stmts) = extract_module_from_prop(prop)?;
-        let filename = if module_id.contains('/') || module_id.contains('.') {
-            sanitize_filename(&module_id)
-        } else {
-            format!("module-{module_id}.js")
-        };
-        module_entries.push((module_id, factory, body_stmts, filename));
-    }
-
-    let id_to_filename: HashMap<usize, String> = module_entries
-        .iter()
-        .filter_map(|(id, _, _, filename)| id.parse::<usize>().ok().map(|n| (n, filename.clone())))
-        .collect();
+    let id_to_filename = id_to_filename_from_descriptors(&module_entries);
 
     let mut modules = Vec::new();
 
-    for (module_id, factory, body_stmts, filename) in &module_entries {
-        let code = emit_webpack5_module(factory, body_stmts.clone(), cm.clone(), &id_to_filename)?;
+    for descriptor in &module_entries {
+        let code = emit_webpack5_module(descriptor, cm.clone(), &id_to_filename)?;
         modules.push(UnpackedModule {
-            id: module_id.clone(),
+            id: descriptor.id.clone(),
             is_entry: false,
             code,
-            filename: filename.clone(),
+            filename: descriptor.filename.clone(),
         });
     }
 
@@ -628,37 +615,23 @@ fn extract_webpack5_modules(
     let module_entries = {
         let span = tracing::info_span!("webpack5: collect module entries");
         let _enter = span.enter();
-        let mut entries = Vec::new();
-        for prop in &modules_object.props {
-            let (module_id, factory, body_stmts) = extract_module_from_prop(prop)?;
-            let filename = if module_id.contains('/') || module_id.contains('.') {
-                sanitize_filename(&module_id)
-            } else {
-                format!("module-{module_id}.js")
-            };
-            entries.push((module_id, factory, body_stmts, filename));
-        }
-        entries
+        collect_module_descriptors(modules_object)?
     };
 
-    let id_to_filename: HashMap<usize, String> = module_entries
-        .iter()
-        .filter_map(|(id, _, _, filename)| id.parse::<usize>().ok().map(|n| (n, filename.clone())))
-        .collect();
+    let id_to_filename = id_to_filename_from_descriptors(&module_entries);
 
     let mut modules = Vec::new();
 
     {
         let span = tracing::info_span!("webpack5: emit all modules", count = module_entries.len());
         let _enter = span.enter();
-        for (module_id, factory, body_stmts, filename) in &module_entries {
-            let code =
-                emit_webpack5_module(factory, body_stmts.clone(), cm.clone(), &id_to_filename)?;
+        for descriptor in &module_entries {
+            let code = emit_webpack5_module(descriptor, cm.clone(), &id_to_filename)?;
             modules.push(UnpackedModule {
-                id: module_id.clone(),
+                id: descriptor.id.clone(),
                 is_entry: false,
                 code,
-                filename: filename.clone(),
+                filename: descriptor.filename.clone(),
             });
         }
     }
@@ -937,22 +910,130 @@ fn extract_module_id_from_prop_name(key: &PropName) -> Option<String> {
     }
 }
 
-/// Extract the factory function from a prop, handling both `Prop::KeyValue` and `Prop::Method`.
-/// Returns `(module_id, factory_function, body_stmts)`.
-fn extract_module_from_prop(prop: &PropOrSpread) -> Option<(String, Function, Vec<Stmt>)> {
+fn module_prop_name_is_supported(key: &PropName) -> bool {
+    matches!(
+        key,
+        PropName::Str(_) | PropName::Num(_) | PropName::Ident(_)
+    )
+}
+
+fn filename_for_module_id(module_id: &str) -> String {
+    if module_id.contains('/') || module_id.contains('.') {
+        sanitize_filename(module_id)
+    } else {
+        format!("module-{module_id}.js")
+    }
+}
+
+fn id_to_filename_from_descriptors(
+    descriptors: &[Webpack5ModuleDescriptor<'_>],
+) -> HashMap<usize, String> {
+    descriptors
+        .iter()
+        .filter_map(|entry| {
+            entry
+                .id
+                .parse::<usize>()
+                .ok()
+                .map(|n| (n, entry.filename.clone()))
+        })
+        .collect()
+}
+
+struct Webpack5ModuleDescriptor<'a> {
+    id: String,
+    filename: String,
+    params: Webpack5FactoryParams<'a>,
+    body_stmts: &'a [Stmt],
+}
+
+#[derive(Clone, Copy)]
+enum Webpack5FactoryParams<'a> {
+    Function(&'a [Param]),
+    Arrow(&'a [Pat]),
+}
+
+impl Webpack5FactoryParams<'_> {
+    fn param_syms(self) -> Vec<Atom> {
+        match self {
+            Webpack5FactoryParams::Function(params) => params
+                .iter()
+                .filter_map(|p| match &p.pat {
+                    Pat::Ident(binding) => Some(binding.sym.clone()),
+                    _ => None,
+                })
+                .collect(),
+            Webpack5FactoryParams::Arrow(params) => params
+                .iter()
+                .filter_map(|p| match p {
+                    Pat::Ident(binding) => Some(binding.sym.clone()),
+                    _ => None,
+                })
+                .collect(),
+        }
+    }
+}
+
+fn is_valid_modules_object(modules_object: &ObjectLit) -> bool {
+    !modules_object.props.is_empty() && modules_object.props.iter().all(is_valid_module_prop)
+}
+
+fn is_valid_module_prop(prop: &PropOrSpread) -> bool {
+    let PropOrSpread::Prop(prop) = prop else {
+        return false;
+    };
+    match &**prop {
+        Prop::KeyValue(key_value) => {
+            module_prop_name_is_supported(&key_value.key)
+                && extract_factory_parts(&key_value.value).is_some()
+        }
+        Prop::Method(method) => {
+            module_prop_name_is_supported(&method.key) && method.function.body.is_some()
+        }
+        _ => false,
+    }
+}
+
+fn collect_module_descriptors(
+    modules_object: &ObjectLit,
+) -> Option<Vec<Webpack5ModuleDescriptor<'_>>> {
+    if modules_object.props.is_empty() {
+        return None;
+    }
+
+    let mut descriptors = Vec::with_capacity(modules_object.props.len());
+    for prop in &modules_object.props {
+        descriptors.push(module_descriptor_from_prop(prop)?);
+    }
+    Some(descriptors)
+}
+
+fn module_descriptor_from_prop(prop: &PropOrSpread) -> Option<Webpack5ModuleDescriptor<'_>> {
     let PropOrSpread::Prop(prop) = prop else {
         return None;
     };
     match &**prop {
         Prop::KeyValue(key_value) => {
             let module_id = extract_module_id_from_prop_name(&key_value.key)?;
-            let (factory, body_stmts) = extract_factory(&key_value.value)?;
-            Some((module_id, factory, body_stmts))
+            let filename = filename_for_module_id(&module_id);
+            let (params, body_stmts) = extract_factory_parts(&key_value.value)?;
+            Some(Webpack5ModuleDescriptor {
+                id: module_id,
+                filename,
+                params,
+                body_stmts,
+            })
         }
         Prop::Method(method) => {
             let module_id = extract_module_id_from_prop_name(&method.key)?;
-            let body = method.function.body.as_ref()?.stmts.clone();
-            Some((module_id, *method.function.clone(), body))
+            let filename = filename_for_module_id(&module_id);
+            let body = method.function.body.as_ref()?;
+            Some(Webpack5ModuleDescriptor {
+                id: module_id,
+                filename,
+                params: Webpack5FactoryParams::Function(&method.function.params),
+                body_stmts: &body.stmts,
+            })
         }
         _ => None,
     }
@@ -972,11 +1053,7 @@ fn extract_webpack_modules_object(var_decl: &VarDecl) -> Option<&ObjectLit> {
         if object_lit.props.is_empty() {
             continue;
         }
-        let all_valid = object_lit
-            .props
-            .iter()
-            .all(|prop| extract_module_from_prop(prop).is_some());
-        if !all_valid {
+        if !is_valid_modules_object(object_lit) {
             continue;
         }
         return Some(object_lit);
@@ -984,56 +1061,38 @@ fn extract_webpack_modules_object(var_decl: &VarDecl) -> Option<&ObjectLit> {
     None
 }
 
-fn extract_factory(expr: &Expr) -> Option<(Function, Vec<Stmt>)> {
+fn extract_factory_parts(expr: &Expr) -> Option<(Webpack5FactoryParams<'_>, &[Stmt])> {
     match strip_parens(expr) {
         Expr::Fn(FnExpr { function, .. }) => {
-            let body = function.body.as_ref()?.stmts.clone();
-            Some((*function.clone(), body))
+            let body = function.body.as_ref()?;
+            Some((
+                Webpack5FactoryParams::Function(&function.params),
+                &body.stmts,
+            ))
         }
         Expr::Arrow(arrow) => {
             let swc_core::ecma::ast::BlockStmtOrExpr::BlockStmt(body) = &*arrow.body else {
                 return None;
             };
-            let params = arrow
-                .params
-                .iter()
-                .cloned()
-                .map(|pat| swc_core::ecma::ast::Param {
-                    span: Default::default(),
-                    decorators: vec![],
-                    pat,
-                })
-                .collect();
-            Some((
-                Function {
-                    params,
-                    decorators: vec![],
-                    span: Default::default(),
-                    ctxt: Default::default(),
-                    body: Some(body.clone()),
-                    is_generator: arrow.is_generator,
-                    is_async: arrow.is_async,
-                    type_params: None,
-                    return_type: None,
-                },
-                body.stmts.clone(),
-            ))
+            Some((Webpack5FactoryParams::Arrow(&arrow.params), &body.stmts))
         }
         _ => None,
     }
 }
 
 fn emit_webpack5_module(
-    factory: &Function,
-    body_stmts: Vec<Stmt>,
+    descriptor: &Webpack5ModuleDescriptor<'_>,
     cm: Lrc<SourceMap>,
     id_to_filename: &HashMap<usize, String>,
 ) -> Option<String> {
     let span = tracing::info_span!("webpack5: emit_module");
     let _enter = span.enter();
 
-    let (mut synthetic_module, _) =
-        normalize_extracted_webpack_module(factory, body_stmts, id_to_filename);
+    let (mut synthetic_module, _) = normalize_extracted_webpack_module(
+        descriptor.params,
+        descriptor.body_stmts,
+        id_to_filename,
+    );
 
     {
         let span = tracing::info_span!("webpack5: fixer+emit");
@@ -1050,20 +1109,12 @@ fn emit_webpack5_module(
 /// webpack runtime helper/decorator noise. General decompiler rules run later
 /// in the driver pipeline.
 fn normalize_extracted_webpack_module(
-    factory: &Function,
-    body_stmts: Vec<Stmt>,
+    params: Webpack5FactoryParams<'_>,
+    body_stmts: &[Stmt],
     id_to_filename: &HashMap<usize, String>,
 ) -> (Module, Mark) {
-    let mut synthetic_module = build_module_from_stmts(body_stmts);
-
-    let param_syms: Vec<Atom> = factory
-        .params
-        .iter()
-        .filter_map(|p| match &p.pat {
-            Pat::Ident(binding) => Some(binding.sym.clone()),
-            _ => None,
-        })
-        .collect();
+    let mut synthetic_module = build_module_from_stmts(body_stmts.to_vec());
+    let param_syms = params.param_syms();
 
     let unresolved_mark = {
         let span = tracing::info_span!("webpack5: resolver");
@@ -1368,6 +1419,89 @@ fn emit_module(module: &Module, cm: Lrc<SourceMap>) -> anyhow::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn descriptor_summary(source: &str) -> Option<Vec<(String, String, usize, usize)>> {
+        GLOBALS.set(&Default::default(), || {
+            let cm: Lrc<SourceMap> = Default::default();
+            let module = super::super::parse_es_module(source, "webpack5-test.js", cm).ok()?;
+            for item in &module.body {
+                let ModuleItem::Stmt(Stmt::Expr(ExprStmt { expr, .. })) = item else {
+                    continue;
+                };
+                let Some(bootstrap_body) = extract_iife_body(expr) else {
+                    continue;
+                };
+                for stmt in &bootstrap_body.stmts {
+                    let Stmt::Decl(swc_core::ecma::ast::Decl::Var(var_decl)) = stmt else {
+                        continue;
+                    };
+                    let Some(modules_object) = extract_webpack_modules_object(var_decl) else {
+                        continue;
+                    };
+                    let descriptors = collect_module_descriptors(modules_object)?;
+                    return Some(
+                        descriptors
+                            .iter()
+                            .map(|descriptor| {
+                                (
+                                    descriptor.id.clone(),
+                                    descriptor.filename.clone(),
+                                    descriptor.params.param_syms().len(),
+                                    descriptor.body_stmts.len(),
+                                )
+                            })
+                            .collect(),
+                    );
+                }
+            }
+            None
+        })
+    }
+
+    #[test]
+    fn borrowed_descriptors_cover_supported_factory_forms() {
+        let source = r#"
+(() => {
+  var __webpack_modules__ = ({
+    1: function(module, exports, require) { exports.value = 1; },
+    2: (module, exports, require) => { exports.value = 2; },
+    3(module, exports, require) { exports.value = 3; }
+  });
+})();
+"#;
+
+        let summary = descriptor_summary(source).expect("modules object should be detected");
+
+        assert_eq!(
+            summary,
+            vec![
+                ("1".to_string(), "module-1.js".to_string(), 3, 1),
+                ("2".to_string(), "module-2.js".to_string(), 3, 1),
+                ("3".to_string(), "module-3.js".to_string(), 3, 1),
+            ]
+        );
+    }
+
+    #[test]
+    fn borrowed_descriptors_reject_unsupported_factory_forms() {
+        let concise_arrow = r#"
+(() => {
+  var __webpack_modules__ = ({
+    1: (module) => module.exports
+  });
+})();
+"#;
+        let non_function = r#"
+(() => {
+  var __webpack_modules__ = ({
+    1: 42
+  });
+})();
+"#;
+
+        assert!(descriptor_summary(concise_arrow).is_none());
+        assert!(descriptor_summary(non_function).is_none());
+    }
 
     #[test]
     fn detects_wp5_cjs_min_numeric_keys_and_method_shorthand() {
